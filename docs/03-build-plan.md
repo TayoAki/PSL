@@ -583,19 +583,19 @@ adds labelled examples, and re-tuning a threshold needs no new API calls.
 2. **Shadow mode, first 4 live weeks:** Claude's tags and flags go into the YAML as planned.
    TypeSafe's only appear in the PR table and the judgments file.
 3. **Switch or drop:** set `judge: typesafe` (a config value, like the model ID) only if TypeSafe
-   misses no sensitive case and its tags need no more editor corrections than Claude's. That means
-   no misses on the golden set, and nothing Claude or the editor caught in the shadow weeks. The
-   golden set counts for more, because in shadow mode the editor starts from Claude's tags. If
-   TypeSafe falls short, remove it; nothing else depends on it.
+   misses no sensitive case the transcript reveals and its tags need no more editor corrections
+   than Claude's. That means no misses on the golden set, and nothing Claude or the editor caught
+   in the shadow weeks. The golden set counts for more, because in shadow mode the editor starts
+   from Claude's tags. If TypeSafe falls short, remove it; nothing else depends on it.
 
-Tests, by test plan section:
+Tests, by test plan section (test plan section 10 has the details):
 - **3.3 unit:** `judge.ts` against a stubbed `fetch` (the SDK accepts one): thresholds, the 4-tag
   cap, the no-tag warning, and failing closed on errors.
 - **4 integration:** P1's golden files include the judgments file. P4's live sandbox run makes
   real TypeSafe calls; PR CI stays offline, as it does for Claude.
 - **6 evals:** Claude and TypeSafe on the same golden set and assertions (100% sensitive recall,
   Jaccard ≥ 0.7), plus a threshold sweep and false flags per week. `evals.yml` also runs when
-  `pipeline/src/judge.ts` changes.
+  `judge.ts`, its thresholds, the pinned Jev version or `tags.yml` change.
 
 ### 11.3 Trade-offs, cost and effort
 

@@ -4,7 +4,8 @@ How we prove each part of the demos hub works: at build time, in CI, after deplo
 it runs. It assumes the stack recommended in
 [03-build-plan.md](03-build-plan.md): an Astro Starlight static site with data-driven weekly pages
 and a TypeScript drafting pipeline that uses the Claude API. Section 9 covers what changes if we
-go with Mintlify instead.
+go with Mintlify instead, and section 10 what changes if we adopt the TypeSafe option for tags
+and sensitive flags.
 
 ## 1. Principles
 
@@ -245,3 +246,65 @@ E2E, axe. Lighthouse and visual regression start as advisory and become required
 | Build-output tests | Replace with `mint broken-links` in CI, plus checks against the **preview deployment URL** (feed, `.md`, sitemap) |
 | E2E / axe / Lighthouse | Run against the Mintlify preview URL. We can't control the embed markup, so E4 and the performance budget become observations rather than gates |
 | Generator tests | More important: the pipeline must edit 4 files per week (week page, index `<Update>` + Callout, year page, `docs.json`), so golden-file tests cover all four |
+
+## 10. If we adopt the TypeSafe option
+
+Build plan section 11 adds a TypeSafe call next to the Claude call. It asks yes/no questions for
+tags, sensitive flags and thin transcripts, runs in shadow mode for 4 live weeks, and then we
+switch to it or drop it. The other layers (sections 3.1, 3.2 and 3.4–3.10) don't change: the
+option writes the same week YAML fields, so C4, C7 and C9 still guard its tags and flags.
+
+**Fixtures (section 2):** recorded TypeSafe responses (a full answer set, a 529 overload, and a
+response missing one answer), and a `tags.yml` fixture with descriptions, because the
+descriptions become question text.
+
+**Unit tests (section 3.3):** `judge.ts` runs against a stubbed `fetch` (the SDK accepts one), with
+retries off (`retry: { maxRetries: 0 }`) so the error cases run instantly.
+- The request has one question per tag and the pinned model ID. Answers map back to tag IDs,
+  including IDs with hyphens.
+- The policy gives 1–4 tags, warns when no tag clears the threshold, flags the demo when any
+  reason clears it, and sets `confidence: low` when `explains_feature` is below its threshold.
+- The regexes flag an email address, a key-like string or an internal hostname even when every
+  answer is 0.
+- After a switch, a 529 or a missing answer keeps Claude's tags and marks the demo `flagged`. In
+  shadow mode, it only adds a PR note. The SDK returns a partial answer set without an error, so
+  `judge.ts` must check that every question was answered.
+
+**Pipeline integration (section 4):** P1 runs in both `judge` modes and also compares the
+judgments file with a golden file. P2 writes no judgments file. P4 makes real TypeSafe calls and
+fails if the answering `model` isn't the pinned version.
+
+**Editorial checks (section 5):** the PR table shows TypeSafe's probabilities and near-misses, and
+the checklist gains one line, so misses can be counted:
+- [ ] Anything sensitive that no flag caught is labelled `sensitive-miss`
+
+**LLM evaluation (section 6):** Claude and TypeSafe run on the same golden set.
+- **Same gates.** The deterministic assertions on tags and flags apply to TypeSafe's output too:
+  tags from the taxonomy, 1–4 per demo, and 100% sensitive recall at the configured threshold.
+- **New cases, for both, aimed at literal reading and false alarms:** a password-reset demo that
+  never reveals a password, a presenter who says there's no customer data while naming a customer,
+  a demo that uses only sandbox names like Acme, and a demo that fits no tag.
+- **Threshold sweep.** It replays stored answers, so it needs no new API calls. At each threshold
+  it reports sensitive recall, false flags per week and tag Jaccard, and it names the values the
+  build plan's rules pick. Thresholds change only in a reviewed PR.
+- **Calibration (tracked).** Tag probabilities are grouped into buckets (0–0.1, 0.1–0.2, …), and
+  each bucket is compared with how often the reference has that tag.
+- **Stability (tracked).** The golden set runs 3 times through TypeSafe, and any tag or flag that
+  flips between runs is reported. Claude gets the same check once, before the switch decision,
+  so its eval cost doesn't triple every week.
+- **Failure triage.** Each failed case is reported with its state, questions, answers and the
+  policy's decision. It's classed as missing evidence (for example, data that was only on screen),
+  a model error, a policy or code error, or a service failure (with its request ID). Misses classed
+  as missing evidence don't count against either judge in the switch decision; closing that gap
+  is the Phase 6 frame check's job.
+
+**Shadow weeks and the switch (build plan section 11.2):** the weekly `evals.yml` run also scores
+the newest merged week. It compares each judge's tags with the editor's final tags (Jaccard), and
+counts sensitive misses (anything the editor or Claude caught that TypeSafe didn't, including
+`sensitive-miss` labels), false flags and fallbacks. Results go to one tracking issue. After 4
+weeks, these numbers and the golden set decide the switch. After a switch the weekly scoring
+continues, and a rising fallback count opens an issue, as the healthcheck does.
+
+**CI wiring (section 8):** `evals.yml` also runs when `pipeline/src/judge.ts`, the thresholds, the
+pinned Jev version or `src/data/tags.yml` change, because tag descriptions are question text.
+`TYPESAFE_API_KEY` goes to `evals.yml`, `draft-week.yml` and the P4 job, never to `ci.yml`.
