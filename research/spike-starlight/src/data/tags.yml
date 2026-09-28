@@ -1,0 +1,9 @@
+- id: ai
+  label: AI
+  aliases: [Ai]
+- id: dashboards
+  label: Dashboards
+  aliases: [dashboard]
+- id: developer-productivity
+  label: Developer productivity
+  aliases: []

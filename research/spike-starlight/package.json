@@ -1,0 +1,14 @@
+{
+  "name": "demo-hub-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/rss": "4.0.19",
+    "@astrojs/starlight": "0.42.4",
+    "astro": "7.3.5"
+  }
+}

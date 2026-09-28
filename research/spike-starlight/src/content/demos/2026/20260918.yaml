@@ -1,0 +1,10 @@
+date: 2026-09-18
+headline: Pinned dashboard filters
+publishedAt: 2026-09-19T17:30:00Z
+demos:
+  - slug: pinned-filters
+    title: Pinned dashboard filters
+    presenters: [ana-li]
+    tags: [dashboards]
+    summary: Ana walks through the new filter bar, which stays pinned while you scroll long dashboards.
+    video: { provider: youtube, id: demo0000003 }

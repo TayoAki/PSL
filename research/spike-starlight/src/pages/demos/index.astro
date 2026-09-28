@@ -1,0 +1,20 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { publishedWeeks, weekPath, weekTitle } from '../../lib/weeks';
+const weeks = await publishedWeeks();
+const latest = weeks[0];
+---
+<StarlightPage frontmatter={{ title: 'Demos', description: 'Weekly demos of new and upcoming features.', tableOfContents: false }}>
+  <p><a class="subscribe" href="/demos/rss.xml">Subscribe (RSS)</a></p>
+  <aside class="latest"><strong>Latest demo:</strong> <a href={weekPath(latest.data.date)}>{weekTitle(latest.data.date)}</a>: {latest.data.headline}</aside>
+  {weeks.map((w) => {
+    const title = weekTitle(w.data.date);
+    const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    return (
+      <section class="week-entry" id={id}>
+        <a class="week-label" href={`#${id}`}>{title}</a>
+        <p><a href={weekPath(w.data.date)}>{title}</a>: {w.data.headline}</p>
+      </section>
+    );
+  })}
+</StarlightPage>

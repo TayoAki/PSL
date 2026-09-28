@@ -1,0 +1,16 @@
+date: 2026-09-25
+headline: Deploy previews for every PR, clarifying questions in the assistant, and more
+publishedAt: 2026-09-28T14:40:00Z
+demos:
+  - slug: deploy-previews
+    title: Deploy previews for every PR
+    presenters: [ana-li]
+    tags: [developer-productivity]
+    summary: Ana shows how every pull request now gets its own preview URL, posted as a PR comment within a few minutes of pushing.
+    video: { provider: youtube, id: demo0000001 }
+  - slug: assistant-clarifying-questions
+    title: Assistant asks clarifying questions
+    presenters: [sam-ortiz]
+    tags: [ai]
+    summary: Sam demos the assistant pausing to ask a single-choice question when a request is ambiguous, instead of guessing.
+    video: { provider: youtube, id: demo0000002 }

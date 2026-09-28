@@ -1,0 +1,32 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { getEntries } from 'astro:content';
+import { publishedWeeks, weekTitle } from '../../../lib/weeks';
+
+export async function getStaticPaths() {
+  const weeks = await publishedWeeks();
+  return weeks.map((week) => {
+    const iso = week.data.date.toISOString().slice(0, 10);
+    return { params: { year: iso.slice(0, 4), date: iso.replaceAll('-', '') }, props: { week } };
+  });
+}
+const { week } = Astro.props;
+const demos = await Promise.all(
+  week.data.demos.map(async (d) => ({
+    ...d,
+    people: await getEntries(d.presenters),
+    tagEntries: await getEntries(d.tags),
+  })),
+);
+const headings = demos.map((d) => ({ depth: 2, slug: d.slug, text: d.title }));
+---
+<StarlightPage frontmatter={{ title: weekTitle(week.data.date), description: week.data.headline }} headings={headings}>
+  {demos.map((d) => (
+    <section class="demo">
+      <h2 id={d.slug}>{d.title}</h2>
+      <p class="byline">{d.people.map((p) => p.data.name).join(', ')} · {d.tagEntries.map((t) => t.data.label).join(', ')}</p>
+      <p>{d.summary}</p>
+      <a class="lite-yt" href={`https://www.youtube.com/watch?v=${d.video.id}`} data-video-id={d.video.id}>Play video: {d.title}</a>
+    </section>
+  ))}
+</StarlightPage>
