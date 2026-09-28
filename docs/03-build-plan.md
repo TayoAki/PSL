@@ -86,7 +86,7 @@ Read first: [01 — how Omni's works](01-how-omni-demos-works.md) ·
 | D6 | Transcript source | **YouTube captions via the owner's OAuth**, if the Phase 0 check passes; otherwise **faster-whisper on the source clip** | Avoids an extra upload step if captions work | Cloudflare Stream or Mux captions API |
 | D7 | Cadence / SLA | **Demos Friday → draft PR Saturday → published by Monday noon** | Matches Omni's observed 1–4 day lag | Same-day publish with a stricter review rota |
 | D8 | Language | **TypeScript (Node 22 LTS)** for site and pipeline; Python only in the Whisper step | One toolchain; the pipeline reuses the site's Zod schemas | All-Python pipeline |
-| D9 | LLM | **Claude API, `claude-opus-5-5`**, structured outputs | Best quality at a negligible cost at this volume | Model is a config value; the eval suite (test plan section 6) decides any change |
+| D9 | LLM | **Claude API, `claude-opus-5-5`**, structured outputs | Best quality at a negligible cost at this volume | Model is a config value; the eval suite (test plan section 6) decides any change. TypeSafe for tags and sensitive flags (see section 11) |
 
 ## 3. Architecture
 
@@ -279,6 +279,9 @@ Settings and rules:
   visible customer data. That's about $0.10 per 5-minute video. Audio-only summaries **can't
   see the screen**, and Omni's pages show this risk is real.
 
+Section 11 drafts an option that asks TypeSafe for `tags`, `sensitive` and the thin-transcript
+signal as probabilities our code thresholds, with this call kept as the fallback.
+
 ### 3.6 Operating the weekly program
 
 | When | Who | What |
@@ -447,6 +450,7 @@ recordings in week 1, even before the site exists.
 | YouTube hosting and captions | $0 |
 | Claude summaries and headlines | ~$2–4/month |
 | Optional screen check (Phase 6) | ~$8/month |
+| TypeSafe tags and flags (section 11, if adopted) | ~$0.02/month |
 | GitHub Actions | within free minutes for public repos; ~15 min/week of faster-whisper otherwise |
 | Alternative video host (Cloudflare Stream, if D2 changes) | ~$5–15/month |
 
@@ -504,3 +508,124 @@ Trade-offs:
 
 Effort: about 75% of the Starlight plan (13–18 engineer-days). Phases 1–2 shrink from 6–8 days
 to about 2; Phases 0 and 3–5 are unchanged.
+
+## 11. Option: TypeSafe for tags and sensitive flags
+
+Claude keeps the writing: title, summary and headline. A second call per demo asks
+[TypeSafe](https://docs.typesafe.ai)'s Jev model yes/no questions about the same transcript. Jev
+doesn't generate text. It returns the probability that each answer is yes, and our code sets the
+cut-offs. It covers the three judgments in the section 3.5 call: `tags`, `sensitive` and the
+self-reported `confidence`. Today the editor sees those verdicts but not how close each one was,
+and the only way to make the sensitive gate stricter is to reword the prompt.
+
+It's an option to test on the golden set, not the default, and it isn't about cost: Claude's call
+stays as the fallback.
+
+### 11.1 Questions and policy
+
+One request per demo, sent alongside the Claude call (illustrative, using `@typesafe-ai/sdk`):
+
+```ts
+import { noul, TypeSafeClient, type NoulQuestion } from '@typesafe-ai/sdk';
+
+const questions: Record<string, NoulQuestion> = {
+  // One Noul per tag in tags.yml, because a demo can fit several tags, or none.
+  ...Object.fromEntries(TAGS.map((t) => [`tag_${t.id}`, noul({
+    tag: { label: t.label, description: t.description },
+    question: 'Is `demo` about a feature that `tag` describes?',
+  })])),
+  sensitive_customer_data: noul('Does `demo` reveal information about a specific customer, such as their name or account data?'),
+  sensitive_credentials: noul('Does `demo` reveal a password, API key, token or other secret?'),
+  sensitive_personal_data: noul("Does `demo` reveal a person's email address, phone number or home address?"),
+  sensitive_internal_url: noul('Does `demo` reveal an internal URL, hostname or admin path?'),
+  sensitive_unreleased_partner: noul('Does `demo` name a partner in connection with something unannounced or under NDA?'),
+  explains_feature: noul('Does `demo.transcript` explain what the feature being shown does?'),
+};
+
+const client = new TypeSafeClient();                // reads TYPESAFE_API_KEY
+const res = await client.systemOne({
+  model: 'jev-1.13.0',                              // pinned: thresholds are tuned per version
+  state: { demo: { title, transcript } },
+  questions,
+});
+const p = (id: string) => res.answers[id].noul;     // probability of yes, 0–1
+```
+
+Code turns the answers into the section 3.5 fields:
+- **Tags:** every tag at or above the tag threshold, highest first, at most 4. If none clears it,
+  keep the top one and warn in the PR that the taxonomy may be missing a tag.
+- **Sensitive:** `flagged` if any reason clears the sensitive threshold. That threshold starts low
+  on purpose, because a missed flag costs far more than an extra look. `other` stays for editors;
+  it has no question, because there's nothing specific to ask.
+- **Thin transcript:** `explains_feature` below its threshold sets `confidence: low`.
+- **Exact checks stay in code:** regexes for email addresses, key-like strings and our internal
+  hostnames run on the transcript first. The questions cover what a pattern can't, like a
+  customer named out loud.
+- **Failure:** after a switch, if the call still fails after the SDK's retries, the demo keeps
+  Claude's tags and is marked `flagged`, so the gate fails closed.
+
+Thresholds live in one config object next to the pinned model ID. Start at 0.5 for tags and
+around 0.2 for sensitive reasons, then let the golden set decide. The sensitive threshold can only
+go down from there, to whatever still flags every case whose reference is flagged (test plan
+section 6 requires 100% recall). The tag threshold becomes the one with the best Jaccard
+agreement. When the golden set shows a question read too literally, the boundary case goes into
+its `criteria`.
+
+The PR table shows each chosen tag's probability, plus any other tag or reason above 0.3, so the
+editor sees near-misses as well as verdicts. `generate.ts` also commits the raw answers, the model
+ID that answered and the token usage to `pipeline/judgments/YYYY/YYYYMMDD.json`, which the site
+never reads. After merge, the week YAML holds the editor's final tags and flags. Every week then
+adds labelled examples, and re-tuning a threshold needs no new API calls.
+
+### 11.2 Rollout and tests
+
+1. **Phase 3:** build `judge.ts`, then compare it with Claude on the golden set.
+2. **Shadow mode, first 4 live weeks:** Claude's tags and flags go into the YAML as planned.
+   TypeSafe's only appear in the PR table and the judgments file.
+3. **Switch or drop:** set `judge: typesafe` (a config value, like the model ID) only if TypeSafe
+   misses no sensitive case and its tags need no more editor corrections than Claude's. That means
+   no misses on the golden set, and nothing Claude or the editor caught in the shadow weeks. The
+   golden set counts for more, because in shadow mode the editor starts from Claude's tags. If
+   TypeSafe falls short, remove it; nothing else depends on it.
+
+Tests, by test plan section:
+- **3.3 unit:** `judge.ts` against a stubbed `fetch` (the SDK accepts one): thresholds, the 4-tag
+  cap, the no-tag warning, and failing closed on errors.
+- **4 integration:** P1's golden files include the judgments file. P4's live sandbox run makes
+  real TypeSafe calls; PR CI stays offline, as it does for Claude.
+- **6 evals:** Claude and TypeSafe on the same golden set and assertions (100% sensitive recall,
+  Jaccard ≥ 0.7), plus a threshold sweep and false flags per week. `evals.yml` also runs when
+  `pipeline/src/judge.ts` changes.
+
+### 11.3 Trade-offs, cost and effort
+
+Trade-offs:
+- Pro: a probability for every tag and reason. The PR shows near-misses, and the gate's strictness
+  is a number tuned on our data rather than prompt wording.
+- Pro: thresholds change without a prompt change or new API calls, and every merged week adds
+  labelled data.
+- Pro: answers barely move between re-runs (TypeSafe's self-consistency cookbook reports a mean
+  standard deviation of about 0.01 over 15 repeats), which suits the idempotent pipeline.
+- Con: a second vendor, API key, SDK and bill, for about 20 calls a week. The JavaScript SDK is new
+  (first public release 2026-09-11, a breaking change four days later), so pin its exact version.
+- Con: unreviewed transcripts, which may hold the very customer data the gate looks for, go to one
+  more processor. TypeSafe doesn't train on customer requests, but zero data retention is
+  enterprise-only, so read its DPA first.
+- Con: thresholds from 25–30 golden cases are rough until the shadow weeks add more.
+
+What it doesn't fix:
+- It can't see the screen either. Jev reads text only, so the audio-only gap in section 3.5
+  remains.
+- English is Jev's strongest language. The golden set's mostly non-English case checks the rest.
+
+**Cost:** about 5k input tokens per demo (a transcript plus one question per tag) at $0.042 per
+million, with output free. That's about $0.02 a month; Claude's cost doesn't change.
+
+**Effort:** about 2–3 engineer-days, almost all in Phase 3. Phase 0 adds a TypeSafe account and a
+`TYPESAFE_API_KEY` secret.
+
+**Later, if summaries need it:** after Claude writes a summary, code splits it into sentences. A
+second request asks one Choice per sentence: does the transcript support it, contradict it, or say
+nothing about it? (This is TypeSafe's citation-check cookbook.) Unsupported sentences become PR
+warnings, so faithfulness is checked on every draft, not only in evals. It has to be a second
+request, because the questions depend on Claude's output.
